@@ -116,7 +116,8 @@
       <li><strong>Não saia desta página</strong> depois de iniciar: trocar de aba ou de aplicativo, minimizar o navegador ou recarregar a página encerra a atividade com <strong>nota zero</strong>.</li>
       <li>O equino aparece em estação, visto pelos lados esquerdo e direito, com quatro janelas do protocolo FLASH marcadas de <strong>1 a 4</strong>.</li>
       <li>Toque numa imagem ultrassonográfica (A–F) e depois na janela onde ela é obtida. No computador, você também pode arrastar. Há <strong>6 imagens para 4 janelas</strong>: duas não pertencem a nenhuma janela marcada.</li>
-      <li>Para desfazer, toque na imagem que já está dentro da janela. O envio é único.</li>
+      <li>Para desfazer, toque na imagem que já está dentro da janela.</li>
+      <li>Você tem <strong>até 3 tentativas</strong>. Vale a <strong>maior nota</strong> entre elas. Use sempre o <strong>mesmo nome</strong> e a mesma turma.</li>
     </ol>
     <div class="actions">
       <button class="primary" id="iniciar" disabled>Iniciar atividade</button>
@@ -288,13 +289,15 @@ function render(){
 }
 
 const DURACAO = 300;           // segundos
-const CHAVE_LS = "flash_estado_v2";
+const MAX_TENT = 3;
+const CHAVE_LS = "flash_estado_v3";
 let aluno = null, prazo = 0, tique = null, emAndamento = false, blurTimer = null;
 
 function norm(t){ return String(t).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\s+/g, " ").trim(); }
 function turmaSel(){ const r = document.querySelector('input[name="turma"]:checked'); return r ? r.value : ""; }
 function lerEstado(){ try { return JSON.parse(store(CHAVE_LS) || "null"); } catch(e){ return null; } }
 function salvarEstado(o){ store(CHAVE_LS, JSON.stringify(o)); }
+function novoId(){ return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 
 function validarInicio(){
   $("iniciar").disabled = !($("nome").value.trim().length >= 5 && turmaSel());
@@ -312,30 +315,53 @@ document.querySelectorAll('input[name="turma"]').forEach(r => r.addEventListener
 function fmt(v){ return Number(v).toFixed(1).replace(".", ","); }
 function mmss(t){ t = Math.max(0, Math.ceil(t)); return Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0"); }
 
-function mostrarResultado(nota, acertos, extra, zero){
-  if (aluno) salvarEstado({chave: aluno.chave, nome: aluno.nome, turma: aluno.turma, status: "finalizado", res: [nota, acertos, extra, !!zero]});
+function mostrarResultado(nota, acertos, extra, zero, info){
+  info = info || {};
+  if (aluno) salvarEstado({chave: aluno.chave, nome: aluno.nome, turma: aluno.turma, status: "finalizado", res: [nota, acertos, extra, !!zero, info]});
   $("atividade").hidden = true; $("inicio").hidden = true;
   $("result").style.display = "block";
   $("result").classList.toggle("zero", !!zero);
-  $("resKicker").textContent = zero ? "Atividade encerrada" : "Respostas registradas";
+  $("resKicker").textContent = zero ? "Tentativa encerrada" : "Respostas registradas";
   $("resKicker").style.color = zero ? "var(--bad)" : "var(--ok)";
   $("score").textContent = (nota != null ? fmt(nota) : "—") + " / 0,4";
-  $("resultTxt").innerHTML = (acertos != null && !zero ? `Você acertou <strong>${acertos} de 4</strong> janelas. ` : "") + (extra || "");
+  let html = (acertos != null && !zero ? `Você acertou <strong>${acertos} de 4</strong> janelas. ` : "") + (extra || "");
+  if (info.tentativa) html += `<br>Tentativa <strong>${info.tentativa} de ${MAX_TENT}</strong>.`;
+  if (info.melhor != null) html += ` Sua maior nota até agora: <strong>${fmt(info.melhor)}</strong> (vale a maior das ${MAX_TENT}).`;
+  const restam = info.restantes != null ? info.restantes : null;
+  if (restam === null || restam > 0) {
+    html += `<div style="margin-top:14px"><button class="primary" type="button" id="novaTent">Fazer nova tentativa${restam != null ? ` (restam ${restam})` : ""}</button></div>`;
+  } else {
+    html += `<br><strong>Você usou as ${MAX_TENT} tentativas.</strong>`;
+  }
+  $("resultTxt").innerHTML = html;
+  const b = document.getElementById("novaTent");
+  if (b) b.addEventListener("click", () => { store(CHAVE_LS, ""); location.reload(); });
   window.scrollTo({top: 0, behavior: "smooth"});
 }
 
 /* ---------- início ---------- */
-$("iniciar").addEventListener("click", () => {
+$("iniciar").addEventListener("click", async () => {
   const nome = $("nome").value.trim(), turma = turmaSel();
   const chave = norm(nome) + "|" + turma;
-  const est = lerEstado();
-  if (est && est.chave === chave && est.status === "finalizado") {
-    $("msgIni").className = "msg err"; $("msgIni").textContent = "Você já realizou esta atividade."; return;
+  let info = null;
+  if (SCRIPT_URL.startsWith("https://")) {
+    $("iniciar").disabled = true; $("msgIni").className = "msg"; $("msgIni").textContent = "Verificando tentativas…";
+    try {
+      info = await fetch(SCRIPT_URL + "?acao=tentativas&nome=" + encodeURIComponent(nome) + "&turma=" + encodeURIComponent(turma)).then(r => r.json());
+    } catch (e) { info = null; }
+    $("msgIni").textContent = "";
+    validarInicio();
+    if (info && info.restantes <= 0) {
+      $("msgIni").className = "msg err";
+      $("msgIni").innerHTML = `Você já usou as ${MAX_TENT} tentativas. Sua maior nota: <strong>${fmt(info.melhor || 0)}</strong>.`;
+      return;
+    }
   }
-  aluno = {nome, turma, chave};
-  salvarEstado({chave, nome, turma, status: "iniciado", inicio: Date.now()});
+  const tentativa = info ? info.tentativas + 1 : null;
+  aluno = {nome, turma, chave, id: novoId(), tentativa};
+  salvarEstado({chave, nome, turma, status: "iniciado", inicio: Date.now(), id: aluno.id, tentativa});
   $("inicio").hidden = true; $("atividade").hidden = false;
-  $("quem").textContent = nome + " · " + turma;
+  $("quem").textContent = nome + " · " + turma + (tentativa ? ` · tentativa ${tentativa} de ${MAX_TENT}` : "");
   emAndamento = true;
   prazo = Date.now() + DURACAO * 1000;
   tique = setInterval(atualizarRelogio, 250); atualizarRelogio();
@@ -351,18 +377,16 @@ function atualizarRelogio(){
   if (resta <= 0) enviar("tempo");
 }
 
-/* ---------- saída da página = nota zero ---------- */
+/* ---------- saída da página = nota zero nesta tentativa ---------- */
 function saiu(){ if (emAndamento && !enviado) enviar("saiu"); }
 document.addEventListener("visibilitychange", () => { if (document.hidden) saiu(); });
 window.addEventListener("pagehide", saiu);
-window.addEventListener("blur", () => { if (emAndamento && !enviado) blurTimer = null; });
-window.addEventListener("focus", () => clearTimeout(blurTimer));
 window.addEventListener("beforeunload", e => { if (emAndamento && !enviado) { e.preventDefault(); e.returnValue = ""; } });
 
 /* ---------- envio ---------- */
 function montarDados(motivo){
   return {
-    atividade: ATIVIDADE, nome: aluno.nome, turma: aluno.turma, motivo,
+    atividade: ATIVIDADE, nome: aluno.nome, turma: aluno.turma, motivo, id: aluno.id,
     tempo: Math.min(DURACAO, Math.round(DURACAO - (prazo - Date.now()) / 1000)),
     respostas: {1: resp[1], 2: resp[2], 3: resp[3], 4: resp[4]},
     letras: {1: letraDe[resp[1]] || "-", 2: letraDe[resp[2]] || "-", 3: letraDe[resp[3]] || "-", 4: letraDe[resp[4]] || "-"}
@@ -374,20 +398,20 @@ async function enviar(motivo){
   enviado = true; emAndamento = false; clearInterval(tique); clearTimeout(blurTimer);
   selecionada = null; render();
   const dados = montarDados(motivo);
-  salvarEstado({chave: aluno.chave, nome: aluno.nome, turma: aluno.turma, status: "finalizado"});
   const configurado = SCRIPT_URL.startsWith("https://");
+  const base = {tentativa: aluno.tentativa, restantes: aluno.tentativa ? MAX_TENT - aluno.tentativa : null};
 
   if (motivo === "saiu") {
     if (configurado) {
       try { navigator.sendBeacon(SCRIPT_URL, new Blob([JSON.stringify(dados)], {type: "text/plain"})); }
       catch (e) { fetch(SCRIPT_URL, {method: "POST", body: JSON.stringify(dados), keepalive: true}).catch(() => {}); }
     }
-    mostrarResultado(0, null, "Você saiu da página durante a atividade. A atividade foi encerrada com nota zero.", true);
+    mostrarResultado(0, null, "Você saiu da página durante a tentativa, que foi encerrada com nota zero.", true, base);
     const est = lerEstado(); if (est) { est.reenviar = dados; salvarEstado(est); }
     return;
   }
 
-  if (!configurado) { mostrarResultado(null, null, "Modo de teste: configure o SCRIPT_URL para enviar e corrigir."); return; }
+  if (!configurado) { mostrarResultado(null, null, "Modo de teste: configure o SCRIPT_URL para enviar e corrigir.", false, base); return; }
 
   $("msg").className = "msg"; $("msg").textContent = "Enviando…";
   const extra = motivo === "tempo" ? "O tempo acabou e suas respostas foram enviadas automaticamente. " : "";
@@ -395,14 +419,14 @@ async function enviar(motivo){
     try {
       const r = await fetch(SCRIPT_URL, {method: "POST", body: JSON.stringify(dados)});
       const j = await r.json();
-      if (j.status === "ok") { mostrarResultado(j.nota, j.acertos, extra, j.situacao === "Saiu da atividade"); return; }
-      if (j.status === "duplicado") { mostrarResultado(j.nota, j.acertos, "Você já havia realizado esta atividade. Vale o primeiro registro.", Number(j.nota) === 0); return; }
+      if (j.status === "ok") { mostrarResultado(j.nota, j.acertos, extra, j.situacao === "Saiu da atividade", j); return; }
+      if (j.status === "limite") { mostrarResultado(j.melhor, null, `Você já tinha usado as ${MAX_TENT} tentativas; esta não foi contada.`, true, {restantes: 0, melhor: j.melhor}); return; }
       throw new Error(j.mensagem || "erro");
     } catch (e) { await new Promise(ok => setTimeout(ok, 1500)); }
   }
   $("msg").className = "msg err";
   $("msg").textContent = "";
-  mostrarResultado(null, null, "Não foi possível confirmar o envio pela internet. <strong>Avise o professor agora</strong> e não feche esta tela.", true);
+  mostrarResultado(null, null, "Não foi possível confirmar o envio pela internet. <strong>Avise o professor agora</strong> e não feche esta tela.", true, {restantes: 0});
 }
 
 $("enviar").addEventListener("click", () => enviar("concluido"));
@@ -416,15 +440,15 @@ desenharCavalos(); montarSlots(); montarBanco(); render(); validarInicio();
   const est = lerEstado();
   if (est && est.status === "finalizado" && est.res) {
     aluno = {nome: est.nome, turma: est.turma, chave: est.chave};
-    mostrarResultado(est.res[0], est.res[1], est.res[2], est.res[3]);
-    $("resultTxt").innerHTML += `<br><small>${est.nome} · ${est.turma}</small>`;
+    mostrarResultado(est.res[0], est.res[1], est.res[2], est.res[3], est.res[4]);
+    $("resultTxt").insertAdjacentHTML("beforeend", `<br><small>${est.nome} · ${est.turma}</small>`);
     // garantia: reenvia o registro de saída (o servidor ignora se já existir)
     if (est.reenviar && SCRIPT_URL.startsWith("https://")) fetch(SCRIPT_URL, {method: "POST", body: JSON.stringify(est.reenviar)}).catch(() => {});
     return;
   }
   if (est && est.status === "iniciado") {
-    // a página foi recarregada ou reaberta no meio da atividade
-    aluno = {nome: est.nome, turma: est.turma, chave: est.chave};
+    // a página foi recarregada ou reaberta no meio da tentativa
+    aluno = {nome: est.nome, turma: est.turma, chave: est.chave, id: est.id, tentativa: est.tentativa};
     prazo = Date.now(); emAndamento = true;
     enviar("saiu");
   }
