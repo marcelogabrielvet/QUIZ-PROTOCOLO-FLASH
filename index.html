@@ -92,7 +92,7 @@
   <header>
     <div class="kicker">Diagnóstico por Imagem · Desafio de abertura</div>
     <h1>Ultrassonografia FLASH do abdome em equinos</h1>
-    <div class="meta">Correlacione as janelas com as imagens · Valor: <strong>0,4 ponto</strong> (0,1 por janela) · Tempo: <strong>2 minutos</strong></div>
+    <div class="meta">Correlacione as janelas com as imagens · Valor: <strong>0,4 ponto</strong> (0,1 por janela) · Tempo: <strong>5 minutos</strong></div>
   </header>
 
   <div class="warn" id="cfgWarn">Modo de teste: o endereço do Google Apps Script ainda não foi configurado, então as respostas não serão enviadas nem corrigidas.</div>
@@ -112,7 +112,7 @@
 
     <h2>Regras</h2>
     <ol class="instr">
-      <li>Você terá <strong>2 minutos</strong>, contados a partir do clique em “Iniciar”. Ao zerar o tempo, as respostas são enviadas automaticamente; janela vazia conta como erro.</li>
+      <li>Você terá <strong>5 minutos</strong>, contados a partir do clique em “Iniciar”. Ao zerar o tempo, as respostas são enviadas automaticamente; janela vazia conta como erro.</li>
       <li><strong>Não saia desta página</strong> depois de iniciar: trocar de aba ou de aplicativo, minimizar o navegador ou recarregar a página encerra a atividade com <strong>nota zero</strong>.</li>
       <li>O equino aparece em estação, visto pelos lados esquerdo e direito, com quatro janelas do protocolo FLASH marcadas de <strong>1 a 4</strong>.</li>
       <li>Toque numa imagem ultrassonográfica (A–F) e depois na janela onde ela é obtida. No computador, você também pode arrastar. Há <strong>6 imagens para 4 janelas</strong>: duas não pertencem a nenhuma janela marcada.</li>
@@ -125,7 +125,7 @@
   </section>
 
   <section id="atividade" hidden>
-    <div class="timer" id="timer"><span id="quem"></span><strong id="relogio">2:00</strong><div class="bar"><i id="barra"></i></div></div>
+    <div class="timer" id="timer"><span id="quem"></span><strong id="relogio">5:00</strong><div class="bar"><i id="barra"></i></div></div>
 
     <h2>O paciente</h2>
     <div class="horses">
@@ -287,8 +287,8 @@ function render(){
   validar();
 }
 
-const DURACAO = 120;           // segundos
-const CHAVE_LS = "flash_estado";
+const DURACAO = 300;           // segundos
+const CHAVE_LS = "flash_estado_v2";
 let aluno = null, prazo = 0, tique = null, emAndamento = false, blurTimer = null;
 
 function norm(t){ return String(t).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\s+/g, " ").trim(); }
@@ -355,7 +355,7 @@ function atualizarRelogio(){
 function saiu(){ if (emAndamento && !enviado) enviar("saiu"); }
 document.addEventListener("visibilitychange", () => { if (document.hidden) saiu(); });
 window.addEventListener("pagehide", saiu);
-window.addEventListener("blur", () => { if (emAndamento && !enviado) blurTimer = setTimeout(saiu, 3000); });
+window.addEventListener("blur", () => { if (emAndamento && !enviado) blurTimer = null; });
 window.addEventListener("focus", () => clearTimeout(blurTimer));
 window.addEventListener("beforeunload", e => { if (emAndamento && !enviado) { e.preventDefault(); e.returnValue = ""; } });
 
