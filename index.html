@@ -117,7 +117,7 @@
       <li>O equino aparece em estação, visto pelos lados esquerdo e direito, com quatro janelas do protocolo FLASH marcadas de <strong>1 a 4</strong>.</li>
       <li>Toque numa imagem ultrassonográfica (A–F) e depois na janela onde ela é obtida. No computador, você também pode arrastar. Há <strong>6 imagens para 4 janelas</strong>: duas não pertencem a nenhuma janela marcada.</li>
       <li>Para desfazer, toque na imagem que já está dentro da janela.</li>
-      <li>Você tem <strong>até 3 tentativas</strong>. Vale a <strong>maior nota</strong> entre elas. Use sempre o <strong>mesmo nome</strong> e a mesma turma.</li>
+      <li>Você tem <strong>1 tentativa</strong>. Uma 2ª tentativa só é liberada com o <strong>código do professor</strong>, em caso de problema técnico (vale a maior nota). Use sempre o <strong>mesmo nome</strong> e a mesma turma.</li>
     </ol>
     <div class="actions">
       <button class="primary" id="iniciar" disabled>Iniciar atividade</button>
@@ -289,7 +289,9 @@ function render(){
 }
 
 const DURACAO = 300;           // segundos
-const MAX_TENT = 3;
+const MAX_TENT = 2;
+const CHAVE_COD = "flash_codigo";
+function codigoSalvo(){ return store(CHAVE_COD) || ""; }
 const CHAVE_LS = "flash_estado_v3";
 let aluno = null, prazo = 0, tique = null, emAndamento = false, blurTimer = null;
 
@@ -298,6 +300,29 @@ function turmaSel(){ const r = document.querySelector('input[name="turma"]:check
 function lerEstado(){ try { return JSON.parse(store(CHAVE_LS) || "null"); } catch(e){ return null; } }
 function salvarEstado(o){ store(CHAVE_LS, JSON.stringify(o)); }
 function novoId(){ return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+
+/* ---------- 2ª tentativa só com o código do professor ---------- */
+function caixaCodigo(alvo, aoLiberar){
+  const w = document.createElement("div");
+  w.style.cssText = "margin-top:14px;font-size:.9rem";
+  w.innerHTML = '<a href="#" style="color:inherit;text-decoration:underline">Teve algum problema técnico?</a>' +
+    '<div hidden style="margin-top:8px">Informe o código fornecido pelo professor.' +
+    '<div style="display:flex;gap:8px;margin-top:8px;max-width:340px"><input type="text" maxlength="20" autocomplete="off" placeholder="Código" style="flex:1;padding:9px 11px;border:1px solid #999;border-radius:8px;font:inherit;text-transform:uppercase">' +
+    '<button type="button" class="primary" style="padding:9px 16px">Confirmar</button></div><div style="color:var(--bad);margin-top:6px;min-height:1em"></div></div>';
+  alvo.appendChild(w);
+  const cx = w.querySelector("div"), inp = w.querySelector("input"), bt = w.querySelector("button"), er = cx.lastElementChild;
+  w.querySelector("a").onclick = e => { e.preventDefault(); cx.hidden = !cx.hidden; inp.focus(); };
+  bt.onclick = async () => {
+    const c = inp.value.replace(/\s+/g, "").toUpperCase();
+    if (!c) { er.textContent = "Digite o código."; return; }
+    bt.disabled = true; er.textContent = "";
+    try {
+      const d = await fetch(SCRIPT_URL + "?acao=codigo&cod=" + encodeURIComponent(c)).then(r => r.json());
+      if (!d.ok) { er.textContent = "Código inválido. Procure o professor."; bt.disabled = false; return; }
+      store(CHAVE_COD, c); aoLiberar();
+    } catch (e) { er.textContent = "Não foi possível verificar o código."; bt.disabled = false; }
+  };
+}
 
 function validarInicio(){
   $("iniciar").disabled = !($("nome").value.trim().length >= 5 && turmaSel());
@@ -328,14 +353,9 @@ function mostrarResultado(nota, acertos, extra, zero, info){
   if (info.tentativa) html += `<br>Tentativa <strong>${info.tentativa} de ${MAX_TENT}</strong>.`;
   if (info.melhor != null) html += ` Sua maior nota até agora: <strong>${fmt(info.melhor)}</strong> (vale a maior das ${MAX_TENT}).`;
   const restam = info.restantes != null ? info.restantes : null;
-  if (restam === null || restam > 0) {
-    html += `<div style="margin-top:14px"><button class="primary" type="button" id="novaTent">Fazer nova tentativa${restam != null ? ` (restam ${restam})` : ""}</button></div>`;
-  } else {
-    html += `<br><strong>Você usou as ${MAX_TENT} tentativas.</strong>`;
-  }
+  const usadas = info.tentativa || (aluno && aluno.tentativa) || 1;
   $("resultTxt").innerHTML = html;
-  const b = document.getElementById("novaTent");
-  if (b) b.addEventListener("click", () => { store(CHAVE_LS, ""); location.reload(); });
+  if ((restam === null || restam > 0) && usadas < MAX_TENT) caixaCodigo($("resultTxt"), () => { store(CHAVE_LS, ""); location.reload(); });
   window.scrollTo({top: 0, behavior: "smooth"});
 }
 
@@ -357,9 +377,15 @@ $("iniciar").addEventListener("click", async () => {
       return;
     }
   }
+  if (info && info.tentativas >= 1 && !codigoSalvo()) {
+    $("msgIni").className = "msg err";
+    $("msgIni").innerHTML = `Você já fez esta atividade. Sua nota: <strong>${fmt(info.melhor || 0)}</strong>.`;
+    caixaCodigo($("msgIni"), () => { $("msgIni").className = "msg ok"; $("msgIni").textContent = "2ª tentativa liberada. Clique em Iniciar atividade."; });
+    return;
+  }
   const tentativa = info ? info.tentativas + 1 : null;
-  aluno = {nome, turma, chave, id: novoId(), tentativa};
-  salvarEstado({chave, nome, turma, status: "iniciado", inicio: Date.now(), id: aluno.id, tentativa});
+  aluno = {nome, turma, chave, id: novoId(), tentativa, codigo: codigoSalvo()};
+  salvarEstado({chave, nome, turma, status: "iniciado", inicio: Date.now(), id: aluno.id, tentativa, codigo: aluno.codigo});
   $("inicio").hidden = true; $("atividade").hidden = false;
   $("quem").textContent = nome + " · " + turma + (tentativa ? ` · tentativa ${tentativa} de ${MAX_TENT}` : "");
   emAndamento = true;
@@ -386,7 +412,7 @@ window.addEventListener("beforeunload", e => { if (emAndamento && !enviado) { e.
 /* ---------- envio ---------- */
 function montarDados(motivo){
   return {
-    atividade: ATIVIDADE, nome: aluno.nome, turma: aluno.turma, motivo, id: aluno.id,
+    atividade: ATIVIDADE, codigo: aluno.codigo || "", nome: aluno.nome, turma: aluno.turma, motivo, id: aluno.id,
     tempo: Math.min(DURACAO, Math.round(DURACAO - (prazo - Date.now()) / 1000)),
     respostas: {1: resp[1], 2: resp[2], 3: resp[3], 4: resp[4]},
     letras: {1: letraDe[resp[1]] || "-", 2: letraDe[resp[2]] || "-", 3: letraDe[resp[3]] || "-", 4: letraDe[resp[4]] || "-"}
@@ -448,7 +474,7 @@ desenharCavalos(); montarSlots(); montarBanco(); render(); validarInicio();
   }
   if (est && est.status === "iniciado") {
     // a página foi recarregada ou reaberta no meio da tentativa
-    aluno = {nome: est.nome, turma: est.turma, chave: est.chave, id: est.id, tentativa: est.tentativa};
+    aluno = {nome: est.nome, turma: est.turma, chave: est.chave, id: est.id, tentativa: est.tentativa, codigo: est.codigo || ""};
     prazo = Date.now(); emAndamento = true;
     enviar("saiu");
   }
