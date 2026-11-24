@@ -371,6 +371,7 @@ $("iniciar").addEventListener("click", async () => {
     } catch (e) { info = null; }
     $("msgIni").textContent = "";
     validarInicio();
+    if (info && info.encerrado) { $("msgIni").className = "msg err"; $("msgIni").textContent = "O prazo desta atividade terminou."; return; }
     if (info && info.restantes <= 0) {
       $("msgIni").className = "msg err";
       $("msgIni").innerHTML = `Você já usou as ${MAX_TENT} tentativas. Sua maior nota: <strong>${fmt(info.melhor || 0)}</strong>.`;
